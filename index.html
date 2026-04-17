@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Subdomain Takeover - Proof of Concept</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    min-height: 100vh;
+    background: #0a0a0f;
+    color: #e2e2e8;
+    font-family: 'Inter', sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(ellipse at 30% 20%, rgba(220, 38, 38, 0.08) 0%, transparent 50%),
+                radial-gradient(ellipse at 70% 80%, rgba(220, 38, 38, 0.05) 0%, transparent 50%);
+    animation: pulse 8s ease-in-out infinite alternate;
+  }
+
+  @keyframes pulse {
+    0% { opacity: 0.6; }
+    100% { opacity: 1; }
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes glitch {
+    0%, 100% { text-shadow: 2px 0 #dc2626, -2px 0 #1e40af; }
+    25% { text-shadow: -2px -1px #dc2626, 2px 1px #1e40af; }
+    50% { text-shadow: 1px 2px #dc2626, -1px -2px #1e40af; }
+    75% { text-shadow: -1px 1px #dc2626, 1px -1px #1e40af; }
+  }
+
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  @keyframes scanline {
+    0% { top: -100%; }
+    100% { top: 100%; }
+  }
+
+  .scanline {
+    position: fixed;
+    top: -100%;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    background: rgba(220, 38, 38, 0.15);
+    animation: scanline 4s linear infinite;
+    pointer-events: none;
+    z-index: 100;
+  }
+
+  .noise {
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 99;
+  }
+
+  .container {
+    position: relative;
+    z-index: 10;
+    max-width: 640px;
+    width: 90%;
+    text-align: center;
+  }
+
+  .poc-badge {
+    display: inline-block;
+    padding: 6px 20px;
+    border: 1px solid #dc2626;
+    border-radius: 2px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 4px;
+    color: #dc2626;
+    text-transform: uppercase;
+    margin-bottom: 2rem;
+    animation: fadeUp 0.6s ease-out, blink 2s ease-in-out infinite;
+  }
+
+  .warning-icon {
+    margin-bottom: 1.5rem;
+    animation: fadeUp 0.6s ease-out 0.1s both;
+  }
+
+  .warning-icon svg {
+    width: 64px;
+    height: 64px;
+    stroke: #dc2626;
+    filter: drop-shadow(0 0 20px rgba(220, 38, 38, 0.4));
+  }
+
+  h1 {
+    font-size: 36px;
+    font-weight: 700;
+    color: #ffffff;
+    line-height: 1.2;
+    margin-bottom: 0.75rem;
+    animation: fadeUp 0.6s ease-out 0.2s both, glitch 3s ease-in-out infinite;
+  }
+
+  .subtitle {
+    font-size: 16px;
+    color: #9ca3af;
+    line-height: 1.6;
+    margin-bottom: 2.5rem;
+    animation: fadeUp 0.6s ease-out 0.3s both;
+    font-weight: 300;
+  }
+
+  .info-card {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(220, 38, 38, 0.2);
+    border-radius: 4px;
+    padding: 1.5rem 2rem;
+    text-align: left;
+    margin-bottom: 1.5rem;
+    animation: fadeUp 0.6s ease-out 0.4s both;
+    backdrop-filter: blur(10px);
+  }
+
+  .info-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  .info-row:last-child {
+    border-bottom: none;
+  }
+
+  .info-label {
+    font-size: 13px;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 500;
+  }
+
+  .info-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: #e5e7eb;
+  }
+
+  .info-value.danger {
+    color: #ef4444;
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+  }
+
+  .info-value.domain {
+    color: #60a5fa;
+  }
+
+  .explanation {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 4px;
+    padding: 1.25rem 1.5rem;
+    text-align: left;
+    margin-bottom: 1.5rem;
+    animation: fadeUp 0.6s ease-out 0.5s both;
+  }
+
+  .explanation h2 {
+    font-size: 14px;
+    font-weight: 600;
+    color: #d1d5db;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  .explanation p {
+    font-size: 14px;
+    color: #9ca3af;
+    line-height: 1.7;
+  }
+
+  .explanation code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    background: rgba(255, 255, 255, 0.06);
+    padding: 2px 6px;
+    border-radius: 3px;
+    color: #60a5fa;
+  }
+
+  .footer {
+    margin-top: 2rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    animation: fadeUp 0.6s ease-out 0.6s both;
+  }
+
+  .footer p {
+    font-size: 12px;
+    color: #4b5563;
+    line-height: 1.8;
+  }
+
+  .footer .highlight {
+    color: #dc2626;
+    font-weight: 500;
+  }
+</style>
+</head>
+<body>
+
+<div class="scanline"></div>
+<div class="noise"></div>
+
+<div class="container">
+
+  <div class="poc-badge">Proof of Concept</div>
+
+  <div class="warning-icon">
+    <svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 9v4"/>
+      <path d="M12 17h.01"/>
+      <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+    </svg>
+  </div>
+
+  <h1>Subdomain Takeover</h1>
+  <p class="subtitle">
+    This domain has been compromised via a dangling CNAME vulnerability.<br>
+    EY now controls the content served on this subdomain.
+  </p>
+
+  <div class="info-card">
+    <div class="info-row">
+      <span class="info-label">Affected Domain</span>
+      <span class="info-value domain">msoid.sans.com.sa</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">CNAME Target</span>
+      <span class="info-value">clientconfig.microsoronline-p.net</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Vulnerability</span>
+      <span class="info-value danger">Dangling CNAME &mdash; Subdomain Takeover</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Severity</span>
+      <span class="info-value danger">HIGH</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Timestamp</span>
+      <span class="info-value" id="ts"></span>
+    </div>
+  </div>
+
+  <div class="explanation">
+    <h2>What happened?</h2>
+    <p>
+      The subdomain <code>msoid.sans.com.sa</code> contained a CNAME DNS record pointing to
+      <code>clientconfig.microsoronline-p.net</code> &mdash; an external domain that was not registered
+      by the organization. A security researcher registered this unclaimed domain and is now serving
+      this page as proof of concept. This demonstrates that an attacker could serve malicious content,
+      harvest credentials, host phishing pages, or fully impersonate the organization under a trusted subdomain.
+    </p>
+  </div>
+  <div class="footer">
+    <p>
+      <span class="highlight">This is a proof of concept conducted during an authorized security assessment by EY.</span><br>
+      No malicious activity was performed. No user data was collected or compromised.<br>
+      This page exists solely to demonstrate the vulnerability to the domain owner.
+    </p>
+  </div>
+
+</div>
+
+<script>
+  document.getElementById('ts').textContent = new Date().toUTCString();
+</script>
+
+</body>
+</html>
